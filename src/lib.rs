@@ -182,6 +182,7 @@ mod error;
 mod keys;
 mod node_id;
 
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use bytes::{Bytes, BytesMut};
 use log::debug;
 use rlp::{Decodable, DecoderError, Encodable, Rlp, RlpStream};
@@ -419,7 +420,7 @@ impl<K: EnrKey> Enr<K> {
     /// Provides the URL-safe base64 encoded "text" version of the ENR prefixed by "enr:".
     #[must_use]
     pub fn to_base64(&self) -> String {
-        let hex = base64::encode_config(&rlp::encode(self), base64::URL_SAFE_NO_PAD);
+        let hex = URL_SAFE_NO_PAD.encode(&rlp::encode(self));
         format!("enr:{hex}")
     }
 
@@ -876,7 +877,8 @@ impl<K: EnrKey> FromStr for Enr<K> {
                 .get(4..)
                 .ok_or_else(|| "Invalid ENR string".to_string())?;
         }
-        let bytes = base64::decode_config(decode_string, base64::URL_SAFE_NO_PAD)
+        let bytes = URL_SAFE_NO_PAD
+            .decode(decode_string)
             .map_err(|e| format!("Invalid base64 encoding: {e:?}"))?;
         rlp::decode(&bytes).map_err(|e| format!("Invalid ENR: {e:?}"))
     }
@@ -1142,6 +1144,20 @@ mod tests {
     fn test_read_enr_prefix() {
         let text = "enr:-Iu4QM-YJF2RRpMcZkFiWzMf2kRd1A5F1GIekPa4Sfi_v0DCLTDBfOMTMMWJhhawr1YLUPb5008CpnBKrgjY3sstjfgCgmlkgnY0gmlwhH8AAAGJc2VjcDI1NmsxoQP8u1uyQFyJYuQUTyA1raXKhSw1HhhxNUQ2VE52LNHWMIN0Y3CCIyiDdWRwgiMo";
         text.parse::<DefaultEnr>().unwrap();
+    }
+
+    #[cfg(feature = "k256")]
+    #[test]
+    fn test_read_enr_base64_enforce_no_pad_decoding() {
+        // Padded version of the example record address.
+        let text = concat!(
+            "enr:-IS4QHCYrYZbAKWCBRlAy5zzaDZXJBGkcnh4MHcBFZntXNFrdvJjX04jRzjzCBOonrkTfj499SZuOh8R33Ls8RRcy5wBgmlkgnY0gmlwhH8AAAGJc2VjcDI1NmsxoQPKY0yuDUmstAHYpMa2_oxVtw0RW_QAdpzBQA8yWM0xOIN1ZHCCdl8",
+            "="
+        );
+        assert_eq!(
+            text.parse::<DefaultEnr>().unwrap_err(),
+            "Invalid base64 encoding: InvalidPadding"
+        );
     }
 
     /// Tests that RLP integers decoding rejects any item with leading zeroes.
